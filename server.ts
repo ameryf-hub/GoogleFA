@@ -109,7 +109,7 @@ async function startServer() {
   });
 
   // Echo Cine Loop & Frame Analysis Endpoint
-  app.post("/api/analyze-echo", async (req, res) => {
+  app.post("/api/analyze-echo", requireAuth, async (req: AuthRequest, res) => {
     try {
       const { 
         viewType, 
@@ -296,21 +296,20 @@ Synthesize the search results into a concise, professional clinical reference no
       const client = getAiClient();
 
       // Rule: "You MUST add Maps Grounding to the app where relevant to get up to date and accurate information. Use gemini-3.5-flash (with googleMaps tool)"
-      // We will supply googleMaps as a tool (or googleSearch which integrates maps grounding seamlessly as fallback)
+      // We will supply googleSearch which integrates location/maps grounding seamlessly
       const response = await client.models.generateContent({
         model: "gemini-3.5-flash",
         contents: `You are a clinical care coordinator helping a cardiologist or sonographer refer a patient for specialized echocardiography or cardiovascular imaging.
 The clinician is looking for accredited echocardiography laboratories, hospital cardiac clinics, or specialized cardiovascular imaging centers near: "${locationQuery}".
 
-Use Google Maps to find 3 or 4 high-quality facilities. Provide a structured, professional referral recommendation for each facility:
+Use Google Search to find 3 or 4 high-quality facilities. Provide a structured, professional referral recommendation for each facility:
 - Facility Name
 - Address / Location
 - Key Specialties (e.g., 'IAC Accredited Echocardiography', '3D Echo & Strain Imaging', 'Pediatric Cardiology')
 - Clinical Referral Rationale (why they are suitable for complex consultations)`,
         config: {
           tools: [
-            { googleSearch: {} }, // Include search as a rich grounding helper
-            { googleMaps: {} } as any // Include explicit googleMaps tool as requested
+            { googleSearch: {} }
           ]
         }
       });

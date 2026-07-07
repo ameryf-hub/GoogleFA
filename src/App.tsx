@@ -203,7 +203,15 @@ export default function App() {
     }
   }, [selectedPatientId, viewType, studies]);
 
-  const activePatient = patients.find((p) => p.id === selectedPatientId) || patients[0];
+  const activePatient = patients.find((p) => p.id === selectedPatientId) || patients[0] || {
+    id: 'P000',
+    name: 'No Patient Selected',
+    age: 0,
+    gender: 'Other' as const,
+    mrn: 'N/A',
+    indication: 'No patient available',
+    createdAt: new Date().toISOString()
+  };
 
   // Upload Custom Image Callback
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -228,6 +236,7 @@ export default function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
         },
         body: JSON.stringify({
           viewType,
@@ -250,10 +259,10 @@ export default function App() {
       if (data.success && data.report) {
         // Save study analysis report back to our local registry
         const report: EchoAnalysisReport = data.report;
-        
+
         // Update study in registry
         const studyId = activeStudy?.id.startsWith('temp-') ? `S-${Date.now()}` : activeStudy?.id || `S-${Date.now()}`;
-        
+
         const newStudyRecord: EchoStudy = {
           id: studyId,
           patientId: selectedPatientId,
@@ -280,16 +289,20 @@ export default function App() {
 
         // Sync study with Cloud SQL database
         if (authToken) {
-          fetch('/api/studies', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${authToken}`
-            },
-            body: JSON.stringify(newStudyRecord)
-          }).catch(err => console.error("Failed to sync study to DB:", err));
+          try {
+            await fetch('/api/studies', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+              },
+              body: JSON.stringify(newStudyRecord)
+            });
+          } catch (err) {
+            console.error("Failed to sync study to DB:", err);
+          }
         }
-        
+
         // Push a report summary message to copilot history
         setCopilotHistory((prev) => [
           ...prev,
@@ -320,33 +333,6 @@ export default function App() {
     try {
       // We will prompt Gemini to act as a Cardiology Assistant, processing instructions like
       // "Write a referral letter" or "Change EF to 45% because of updated volumes"
-      const response = await fetch('/api/analyze-echo', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          viewType,
-          measurements: viewerMeasurements,
-          patientIndication: activePatient.indication,
-          patientAge: activePatient.age,
-          patientGender: activePatient.gender,
-          image: uploadedImage,
-          mimeType: uploadedMimeType,
-          useThinkingMode,
-          // Custom instruction override passed inside report prompt
-          patientId: selectedPatientId,
-          notes: activeStudy?.notes || ''
-        }),
-      });
-
-      // Wait, let's make a custom request or simulate processing of instructions!
-      // To keep it clean and robust, we can use our analyze-echo endpoint but append the instruction as patient indication or special query
-      // Let's call the analyze-echo endpoint with a customized payload, or we can use our endpoint to return intelligent responses.
-      // Actually, we can make a direct fetch to a custom instruction prompt on the backend, but since we didn't add a specific copilot endpoint,
-      // we can use the analyze-echo endpoint with a custom prompt by temporarily overriding the indiciation parameter!
-      // Overriding indication or view with the user prompt lets us leverage the backend's Gemini model instantly.
-      // Let's make an intelligent request!
       const promptOverride = `CLINICAL USER INSTRUCTION: "${userMessage}".
 Current clinical report: ${JSON.stringify(activeStudy?.analysisReport || "None")}.
 Please answer the clinician's query or apply their instruction directly. Respond as a Cardiology AI Assistant.
@@ -356,6 +342,7 @@ If they ask to update values, output a revised report matching their instruction
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
         },
         body: JSON.stringify({
           viewType,
@@ -364,6 +351,7 @@ If they ask to update values, output a revised report matching their instruction
           patientAge: activePatient.age,
           patientGender: activePatient.gender,
           image: uploadedImage,
+          mimeType: uploadedMimeType,
           useThinkingMode
         }),
       });
@@ -375,7 +363,7 @@ If they ask to update values, output a revised report matching their instruction
       const copilotData = await copilotResponse.json();
       if (copilotData.success && copilotData.report) {
         const rep = copilotData.report;
-        
+
         // If the copilot returned a parsed report, we can choose to update the active study!
         const studyId = activeStudy?.id.startsWith('temp-') ? `S-${Date.now()}` : activeStudy?.id || `S-${Date.now()}`;
         const updatedStudy: EchoStudy = {
